@@ -1,0 +1,56 @@
+[project]
+name = "Flywizz"
+version = "0.1.0"
+description = "Open source unofficial API wrapper to get flight data from Wizz Air."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Victor Brinkhorst", email = "victorbrnk@gmail.com" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP",
+    "Typing :: Typed",
+]
+dependencies = [
+    "httpx>=0.27.2",
+    "pydantic>=2.9.2",
+    "tenacity>=9.0.0",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0.0"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "pre-commit>=3.0",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.scripts]
+flywizz-mcp = "flywizz.mcp_server:main"
+
+[tool.setuptools.packages.find]
+include = ["flywizz*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]
