@@ -1,0 +1,47 @@
+name: Endpoint Change
+description: Wizz Air changed or broke an API endpoint that Flywizz relies on
+title: "[ENDPOINT] "
+labels: [endpoint-change]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when Wizz Air has changed an endpoint's path, request shape, or response shape.
+
+        Before filing: a `400 {"handlerError":"InvalidProtocol"}` on every endpoint is almost
+        always a stale verification token, not drift. See `docs/internal-api-spec.md`.
+
+  - type: input
+    id: endpoint-path
+    attributes:
+      label: Endpoint path
+      description: The path relative to the API base, plus the version you saw it on.
+      placeholder: "e.g. search/timetableV2 on 29.14.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed-shape
+    attributes:
+      label: Observed shape
+      description: What does the endpoint currently return / expect? Paste a sample JSON or describe the change.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-shape
+    attributes:
+      label: Expected shape
+      description: What did it used to return / expect (the shape Flywizz currently assumes)?
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Any other details, e.g. when the change was first noticed, related endpoints also affected.
