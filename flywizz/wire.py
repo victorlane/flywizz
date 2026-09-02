@@ -11,9 +11,10 @@ what the API expects.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from .misc import (
+    MAX_ARRIVAL_STATIONS,
     AvailabilitySearch,
     Connection,
     Country,
@@ -135,6 +136,21 @@ def serialize_flight_dates(
     }
 
 
+def serialize_multi_arrival(
+    origin: str,
+    destinations: Sequence[str],
+    date_from: datetime,
+    date_to: datetime,
+) -> Dict[str, Any]:
+    """Render a multi-arrival schedule lookup into its request body."""
+    return {
+        "departureStation": origin.upper(),
+        "arrivalStations": [d.upper() for d in destinations],
+        "from": _date(date_from),
+        "to": _date(date_to),
+    }
+
+
 def parse_price(raw: Optional[Dict[str, Any]]) -> Optional[Price]:
     if not raw or raw.get("amount") is None:
         return None
@@ -161,6 +177,44 @@ def parse_live_price(
     if price is not None and price_type in NO_FARE_PRICE_TYPES and price.amount == 0:
         return None
     return price
+
+
+def parse_multi_arrival(
+    raw: Dict[str, Any], destinations: Sequence[str]
+) -> Dict[str, list[datetime]]:
+    """Turn a multi-arrival response into ``{destination: [dates]}``.
+
+    Two upstream quirks are absorbed here.
+
+    The result keys are route pairs run through ASP.NET's camel-casing, which
+    mangles the leading run of capitals: ``BUD-EIN`` arrives as ``buD-EIN``.
+    Rather than trust that transformation, keys are matched back to the
+    stations that were asked for.
+
+    A destination the airline does not serve in the window is *omitted* from
+    the response, and an unknown station code is dropped just as quietly. Both
+    come back as an empty list, so every requested destination is present in
+    the result and callers can iterate without a membership check.
+
+    :raises ValueError: if the endpoint reports that the arrival limit was
+        exceeded, which it answers with an empty -- not an errored -- body.
+        The client turns this into a ``WizzairException``.
+    """
+    if raw.get("isArrivalLimitExceeded"):
+        raise ValueError(
+            f"the endpoint refused {len(destinations)} arrival stations at once "
+            f"and returned nothing; ask for at most {MAX_ARRIVAL_STATIONS}"
+        )
+
+    by_destination: Dict[str, list[datetime]] = {}
+    for key, values in (raw.get("arrivalStationResults") or {}).items():
+        _, _, arrival = key.upper().partition("-")
+        if not arrival:
+            continue
+        by_destination[arrival] = [
+            parsed for parsed in (_parse_dt(v) for v in values or []) if parsed
+        ]
+    return {d.upper(): by_destination.get(d.upper(), []) for d in destinations}
 
 
 def parse_connection(raw: Dict[str, Any]) -> Connection:

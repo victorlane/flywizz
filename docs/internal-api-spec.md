@@ -179,6 +179,53 @@ Which dates a route operates in a window. No prices, very cheap.
 
 Omitting the window returns `{"validationCodes":["InvalidFromDate"]}`.
 
+The window may span at most **62 days**. Wider requests answer
+`{"validationCodes":["InvalidTimeDateRange"]}`.
+
+---
+
+## `POST /Api/search/FlightDatesMultiArrival`
+
+The same schedule data as `flightDates`, for several destinations in one call.
+Still no prices.
+
+**Body**
+
+| Field | Required | Notes |
+|---|---|---|
+| `departureStation` | yes | Uppercase IATA. |
+| `arrivalStations` | yes | Array of uppercase IATA. **At most 5** — see below. |
+| `from` | yes | ISO date. |
+| `to` | yes | ISO date. Window may span at most 62 days. |
+
+**Response**
+
+```json
+{
+  "arrivalStationResults": {
+    "buD-EIN": ["2026-10-02T00:00:00", "2026-10-03T00:00:00"],
+    "buD-LTN": ["2026-10-02T00:00:00"]
+  },
+  "isArrivalLimitExceeded": false
+}
+```
+
+Three traps, all of them silent:
+
+1. **The arrival limit is 5, and exceeding it is not an error.** Ask for six
+   stations and the response is `{"arrivalStationResults": {},
+   "isArrivalLimitExceeded": true}` — HTTP 200, empty body. A caller that
+   ignores the flag cannot tell this apart from "none of these routes
+   operate". Flywizz batches in fives and raises on the flag regardless.
+2. **The result keys are camel-cased route pairs, which mangles the leading
+   run of capitals.** `BUD-EIN` comes back as `buD-EIN`: ASP.NET's
+   camel-casing lowercases uppercase characters while the next one is also
+   uppercase, so `B` and `U` are lowered and `D` survives. Match keys back to
+   the stations you asked for rather than reversing the transformation.
+3. **A destination with no dates is omitted from the map, not returned
+   empty.** An unknown station code is dropped just as quietly, with no
+   validation error. Both are indistinguishable in the response.
+
 ---
 
 ## `POST /Api/search/timetableV2`

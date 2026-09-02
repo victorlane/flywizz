@@ -173,6 +173,16 @@ says nothing about the shape.
 Wrap the transport in `CachingTransport` (or `AsyncCachingTransport`) when
 iterating on network-metadata work so you don't refetch `asset/map` every run.
 
+### Measure before you optimise
+
+`FlightDatesMultiArrival` looked like an obvious way to cut `explore_with_fares`
+down: rule out the routes that don't operate, then price only the survivors.
+Measured, it isn't. The prefilter costs `N/5` requests and saves one per dead
+route, so it only pays off above 20% dead routes; BUD, KTW and EIN came in at
+18%, 22% and 11%. The method stays as a public endpoint wrapper, where it is a
+genuine 5x saving for schedule-only questions, and `explore_with_fares` was left
+alone. Take the measurement before wiring an endpoint into a helper.
+
 ## Release flow
 
 Releases are automated:

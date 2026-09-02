@@ -10,9 +10,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Sequence
 
 from .misc import (
+    MAX_ARRIVAL_STATIONS,
     AvailabilitySearch,
     Country,
     Culture,
@@ -32,14 +33,21 @@ from .wire import (
     parse_fare_chart_entry,
     parse_flight_dates,
     parse_flight_status,
+    parse_multi_arrival,
     parse_network,
     parse_timetable_entry,
     serialize_availability,
     serialize_fare_chart,
     serialize_flight_dates,
+    serialize_multi_arrival,
     serialize_timetable,
 )
-from .wizzair import _month_window, _windows
+from .wizzair import (
+    _batched,
+    _check_flight_dates_window,
+    _month_window,
+    _windows,
+)
 
 logger = logging.getLogger("Flywizz")
 
@@ -108,6 +116,42 @@ class AsyncWizzAir:
         params = serialize_flight_dates(origin, destination, date_from, date_to)
         data = await self.transport.get_json("search/flightDates", params)
         return parse_flight_dates(data)
+
+    async def get_flight_dates_multi(
+        self,
+        origin: str,
+        destinations: Sequence[str],
+        date_from: datetime,
+        date_to: datetime,
+    ) -> dict[str, list[datetime]]:
+        """Operating dates for many destinations at once. No prices.
+
+        The batches the sync client walks in sequence are fanned out
+        concurrently here. See :meth:`flywizz.WizzAir.get_flight_dates_multi`.
+        """
+        _check_flight_dates_window(date_from, date_to)
+        wanted = [d.upper() for d in destinations]
+        batches = list(_batched(wanted, MAX_ARRIVAL_STATIONS))
+
+        responses = await asyncio.gather(
+            *(
+                self.transport.post_json(
+                    "search/FlightDatesMultiArrival",
+                    serialize_multi_arrival(origin, batch, date_from, date_to),
+                )
+                for batch in batches
+            )
+        )
+
+        out: dict[str, list[datetime]] = {}
+        for batch, data in zip(batches, responses, strict=True):
+            try:
+                out.update(parse_multi_arrival(data, batch))
+            except (KeyError, ValueError) as exc:
+                raise WizzairException(
+                    f"unexpected multi-arrival shape: {exc}"
+                ) from exc
+        return out
 
     async def get_timetable(self, params: TimetableSearch) -> list[TimetableEntry]:
         """Cheapest fare per operating day, plus every departure time that day."""
@@ -237,6 +281,8 @@ class AsyncWizzAir:
         """Reachable destinations from ``origin``, each with its cheapest fare.
 
         One timetable call per destination, fanned out ``concurrency`` at a time.
+        See :meth:`flywizz.WizzAir.explore_with_fares` for why this does not
+        prefilter with :meth:`get_flight_dates_multi`.
         """
         destinations = await self.get_destinations(origin)
         if limit is not None:

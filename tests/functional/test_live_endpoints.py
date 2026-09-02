@@ -11,7 +11,13 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from flywizz.misc import AvailabilitySearch, FareChartSearch, TimetableSearch
+from flywizz.misc import (
+    MAX_ARRIVAL_STATIONS,
+    MAX_FLIGHT_DATES_WINDOW_DAYS,
+    AvailabilitySearch,
+    FareChartSearch,
+    TimetableSearch,
+)
 from flywizz.transport import BotGateError, WizzairException
 
 from .conftest import (
@@ -316,3 +322,64 @@ def test_search_search_is_still_gated(client):
     assert isinstance(caught.value, BotGateError), (
         f"search/search answered {caught.value} instead of the Kasada gate"
     )
+
+
+# --- search/FlightDatesMultiArrival ---------------------------------------
+
+
+def test_multi_arrival_answers_for_every_destination_asked_for(client):
+    """Including the ones upstream omits, which must come back empty."""
+    origin = BUSY_ROUTE[0]
+    start, end = priced_window()
+    destinations = [s.iata for s in client.get_destinations(origin)][:12]
+    require(destinations, "destinations")
+
+    dates = client.get_flight_dates_multi(origin, destinations, start, end)
+    assert list(dates) == destinations, "a destination went missing in batching"
+    for iata, days in dates.items():
+        assert all(start.date() <= d.date() <= end.date() for d in days), (
+            f"{iata} returned a date outside the requested window"
+        )
+        assert days == sorted(days)
+        assert len(set(days)) == len(days)
+    assert any(days for days in dates.values()), "no route operated at all"
+
+
+def test_multi_arrival_agrees_with_the_single_route_endpoint(client):
+    """Both schedule surfaces describe the same route, so they must match."""
+    origin, destination = THIN_ROUTE
+    start, end = priced_window()
+
+    single = client.get_flight_dates(origin, destination, start, end)
+    batched = client.get_flight_dates_multi(origin, [destination], start, end)
+    assert batched[destination] == single
+
+
+def test_multi_arrival_batches_past_the_arrival_limit(client):
+    """More than five destinations must still come back fully populated.
+
+    Upstream answers an over-long list with an empty body rather than an
+    error, so an un-batched call would look exactly like "nothing operates".
+    """
+    origin = BUSY_ROUTE[0]
+    start, end = priced_window()
+    destinations = [s.iata for s in client.get_destinations(origin)][
+        : MAX_ARRIVAL_STATIONS * 3
+    ]
+    if len(destinations) <= MAX_ARRIVAL_STATIONS:
+        pytest.skip(f"{origin} has too few destinations to exercise batching")
+
+    dates = client.get_flight_dates_multi(origin, destinations, start, end)
+    assert len(dates) == len(destinations)
+    assert any(days for days in dates.values())
+
+
+def test_multi_arrival_rejects_an_over_long_window(client):
+    start, _ = priced_window()
+    with pytest.raises(ValueError, match="at most"):
+        client.get_flight_dates_multi(
+            BUSY_ROUTE[0],
+            [BUSY_ROUTE[1]],
+            start,
+            start + timedelta(days=MAX_FLIGHT_DATES_WINDOW_DAYS + 1),
+        )

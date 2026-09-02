@@ -14,12 +14,14 @@ from flywizz.wire import (
     parse_flight_dates,
     parse_flight_status,
     parse_live_price,
+    parse_multi_arrival,
     parse_network,
     parse_price,
     parse_timetable_entry,
     serialize_availability,
     serialize_fare_chart,
     serialize_flight_dates,
+    serialize_multi_arrival,
     serialize_timetable,
 )
 
@@ -293,4 +295,62 @@ def test_timetable_window_must_not_run_backwards():
             destination="LTN",
             date_from=datetime(2026, 11, 10),
             date_to=datetime(2026, 11, 1),
+        )
+
+
+def test_serialize_multi_arrival_uppercases_every_station():
+    body = serialize_multi_arrival(
+        "bud", ["ltn", "EIN"], datetime(2026, 11, 1), datetime(2026, 11, 30)
+    )
+    assert body == {
+        "departureStation": "BUD",
+        "arrivalStations": ["LTN", "EIN"],
+        "from": "2026-11-01",
+        "to": "2026-11-30",
+    }
+
+
+def test_parse_multi_arrival_unmangles_the_route_keys():
+    """Result keys arrive camel-cased: `BUD-EIN` comes back as `buD-EIN`."""
+    parsed = parse_multi_arrival(
+        {
+            "arrivalStationResults": {
+                "buD-EIN": ["2026-11-02T00:00:00", "2026-11-03T00:00:00"],
+                "buD-LTN": ["2026-11-02T00:00:00"],
+            },
+            "isArrivalLimitExceeded": False,
+        },
+        ["LTN", "EIN"],
+    )
+    assert parsed["EIN"] == [datetime(2026, 11, 2), datetime(2026, 11, 3)]
+    assert parsed["LTN"] == [datetime(2026, 11, 2)]
+
+
+def test_parse_multi_arrival_fills_in_the_destinations_upstream_omitted():
+    """A route with no dates is dropped from the response, not zeroed.
+
+    Every requested destination is present in the result so callers can
+    iterate without a membership check.
+    """
+    parsed = parse_multi_arrival(
+        {
+            "arrivalStationResults": {"buD-LTN": ["2026-11-02T00:00:00"]},
+            "isArrivalLimitExceeded": False,
+        },
+        ["LTN", "BOJ", "zzz"],
+    )
+    assert list(parsed) == ["LTN", "BOJ", "ZZZ"]
+    assert parsed["BOJ"] == [] and parsed["ZZZ"] == []
+
+
+def test_parse_multi_arrival_raises_when_the_arrival_limit_was_exceeded():
+    """Overflow is answered with an empty body, which reads like "no flights".
+
+    Silently returning nothing would be indistinguishable from a suspended
+    route, so the flag is turned into an error.
+    """
+    with pytest.raises(ValueError, match="at most 5"):
+        parse_multi_arrival(
+            {"arrivalStationResults": {}, "isArrivalLimitExceeded": True},
+            ["A", "B", "C", "D", "E", "F"],
         )

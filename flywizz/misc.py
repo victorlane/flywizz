@@ -27,6 +27,8 @@ __all__ = [
     "Culture",
     "DestinationFare",
     "MAX_TIMETABLE_WINDOW_DAYS",
+    "MAX_FLIGHT_DATES_WINDOW_DAYS",
+    "MAX_ARRIVAL_STATIONS",
     "TimetableSearch",
     "FareChartSearch",
     "AvailabilitySearch",
@@ -182,6 +184,17 @@ class DestinationFare(BaseModel):
 #: Longest window ``search/timetableV2`` accepts, measured end to end. Anything
 #: wider comes back as ``400 InvalidTimeDateRange`` with no explanation.
 MAX_TIMETABLE_WINDOW_DAYS = 42
+
+#: Longest window the schedule endpoints (``search/flightDates`` and
+#: ``search/FlightDatesMultiArrival``) accept. Wider than the timetable's,
+#: because these carry no prices.
+MAX_FLIGHT_DATES_WINDOW_DAYS = 62
+
+#: Arrival stations ``search/FlightDatesMultiArrival`` will answer for in one
+#: call. Asking for more is *not* an error: the endpoint returns an empty
+#: result set with ``isArrivalLimitExceeded``, which reads exactly like "this
+#: route does not operate". Batch instead.
+MAX_ARRIVAL_STATIONS = 5
 
 
 def _check_window(

@@ -24,6 +24,7 @@ An open-source unofficial API wrapper to get flight data from Wizz Air.
 - [API Reference](#api-reference)
 - [Data Models](#data-models)
 - [Examples](#examples)
+- [Checking many routes at once](#checking-many-routes-at-once)
 - [Explore Mode](#explore-mode)
 - [**Use with Claude, Cursor, and other MCP clients**](#use-with-claude-cursor-and-other-mcp-clients)
 - [API characteristics](#api-characteristics)
@@ -101,18 +102,21 @@ for day in client.get_timetable(search):
         print(day.departure_date.date(), "~", day.original_price.amount, "(check price)")
 ```
 
-### A timetable window may span at most 42 days
+### Search windows are capped, and the caps differ
 
-`search/timetableV2` rejects anything wider with `400 InvalidTimeDateRange` and
-no further explanation. `TimetableSearch` therefore enforces the limit itself,
-in a message that names it. Split a longer search into consecutive windows:
+Priced and unpriced surfaces disagree about how far ahead you may look. Both
+reject a wider window with `400 InvalidTimeDateRange` and no further
+explanation, so Flywizz enforces each limit itself, in a message that names it.
 
 ```python
-from flywizz.misc import MAX_TIMETABLE_WINDOW_DAYS  # 42
+from flywizz.misc import (
+    MAX_TIMETABLE_WINDOW_DAYS,      # 42, for timetableV2 and farechart
+    MAX_FLIGHT_DATES_WINDOW_DAYS,   # 62, for the schedule endpoints
+)
 ```
 
-`cheapest_weekend()` already does this internally, since its default of
-`months_ahead=3` far exceeds the cap.
+`cheapest_weekend()` splits the range internally, since its default of
+`months_ahead=3` far exceeds either cap.
 
 ### `search/search` is behind a bot gate
 
@@ -179,6 +183,7 @@ client = WizzAir(CachingTransport(WizzairTransport(), ttl=3600))
 | `explore_by_country(origin)` | derived | Destinations grouped by country code |
 | `validate_route(origin, destination)` | derived | Does Wizz Air fly this route direct |
 | `get_flight_dates(origin, destination, date_from, date_to)` | `search/flightDates` | Operating days, no prices, very cheap |
+| `get_flight_dates_multi(origin, destinations, date_from, date_to)` | `search/FlightDatesMultiArrival` | Operating days for up to 5 destinations per request, batched |
 | `get_timetable(params)` | `search/timetableV2` | Cheapest fare per day, plus every departure |
 | `get_return_timetable(params)` | `search/timetableV2` | Outbound and inbound in one call |
 | `get_fare_chart(params)` | `asset/farechart` | Price strip around a target date |
@@ -466,6 +471,37 @@ except WizzairException as e:
 the fields it objected to. An empty list means the API answered with nothing
 matching; it never means a failure.
 
+## Checking many routes at once
+
+`get_flight_dates_multi()` answers the schedule question for several
+destinations per request, which is five times cheaper than looping over
+`get_flight_dates()`:
+
+```python
+from datetime import datetime, timedelta
+from flywizz import WizzAir, WizzairTransport, CachingTransport
+
+client = WizzAir(CachingTransport(WizzairTransport()))
+start = datetime.now() + timedelta(days=30)
+
+destinations = [s.iata for s in client.get_destinations("BUD")]
+dates = client.get_flight_dates_multi("BUD", destinations, start, start + timedelta(days=30))
+
+for iata, days in dates.items():
+    print(f"{iata}: {len(days)} operating days")
+```
+
+Every destination you ask for appears in the result. A route that does not
+operate in the window maps to an empty list rather than going missing, so
+there is no membership check to forget.
+
+The endpoint answers for at most five destinations per request and reports an
+over-long list by returning *nothing* rather than an error. Flywizz batches
+for you, so the list you pass has no practical ceiling.
+
+Fares are a different matter: there is no batched priced surface, so
+`explore_with_fares()` still costs one call per destination.
+
 ## Explore Mode
 
 Explore Mode answers the question "where can I actually fly from here?". It
@@ -663,7 +699,7 @@ calls behave the way they do.
 | Cheap-fare search | There is no "anywhere" endpoint. `explore_with_fares()` fans out one call per destination. |
 | Priced surfaces | `timetableV2` and `farechart` are open; `search/search` is gated. |
 | Pagination | None. Every response is complete, which is why `asset/map` is 650 KB. |
-| Window limits | A timetable window may span at most 42 days. |
+| Window limits | A timetable window may span at most 42 days; a schedule window, 62. |
 | Bot protection | Kasada, permanently, on four endpoints. |
 
 ## Caching

@@ -116,3 +116,17 @@ async def test_async_cheapest_weekend_matches_sync(client, async_client):
         pytest.skip(f"no priced weekend for {origin}-{destination} in three months")
     assert sync_pair[0].departure_date == async_pair[0].departure_date
     assert sync_pair[1].departure_date == async_pair[1].departure_date
+
+
+async def test_async_multi_arrival_matches_sync(client, async_client):
+    """The async path fans the batches out concurrently; results must match."""
+    origin = BUSY_ROUTE[0]
+    start, end = priced_window()
+    destinations = [s.iata for s in client.get_destinations(origin)][:12]
+    require(destinations, "destinations")
+
+    sync_dates = client.get_flight_dates_multi(origin, destinations, start, end)
+    async_dates = await async_client.get_flight_dates_multi(
+        origin, destinations, start, end
+    )
+    assert sync_dates == async_dates
