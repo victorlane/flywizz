@@ -97,7 +97,7 @@ def _upstream_outage(exc: BaseException) -> str | None:
     return None
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item):
     """Turn "Wizz Air is unavailable" into a skip, not a failure.
 
@@ -105,14 +105,14 @@ def pytest_runtest_call(item):
     assertion and stays a failure; the tests that expect the gate catch it
     themselves, so anything reaching here came from an un-gated path.
     """
-    outcome = yield
-    if "functional" not in item.nodeid:
-        return
-    exc = outcome.excinfo
-    if exc:
-        reason = _upstream_outage(exc[1])
-        if reason:
-            pytest.skip(reason)
+    try:
+        return (yield)
+    except BaseException as exc:
+        if "functional" in item.nodeid:
+            reason = _upstream_outage(exc)
+            if reason:
+                pytest.skip(reason)
+        raise
 
 
 @pytest.fixture(scope="session")
