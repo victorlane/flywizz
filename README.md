@@ -25,6 +25,7 @@ An open-source unofficial API wrapper to get flight data from Wizz Air.
 - [Data Models](#data-models)
 - [Examples](#examples)
 - [Checking many routes at once](#checking-many-routes-at-once)
+- [Flights that need a connection](#flights-that-need-a-connection)
 - [Explore Mode](#explore-mode)
 - [**Use with Claude, Cursor, and other MCP clients**](#use-with-claude-cursor-and-other-mcp-clients)
 - [API characteristics](#api-characteristics)
@@ -184,6 +185,7 @@ client = WizzAir(CachingTransport(WizzairTransport(), ttl=3600))
 | `validate_route(origin, destination)` | derived | Does Wizz Air fly this route direct |
 | `get_flight_dates(origin, destination, date_from, date_to)` | `search/flightDates` | Operating days, no prices, very cheap |
 | `get_flight_dates_multi(origin, destinations, date_from, date_to)` | `search/FlightDatesMultiArrival` | Operating days for up to 5 destinations per request, batched |
+| `get_connecting_flight_dates(origin, destination, date_from, date_to)` | `search/dohopFlightDates` | Operating days including one-stop connections |
 | `get_timetable(params)` | `search/timetableV2` | Cheapest fare per day, plus every departure |
 | `get_return_timetable(params)` | `search/timetableV2` | Outbound and inbound in one call |
 | `get_fare_chart(params)` | `asset/farechart` | Price strip around a target date |
@@ -304,6 +306,16 @@ One operating day for a route, with its cheapest fare.
 
 - `departure` (datetime): Departure time
 - `is_cheapest_of_the_day` (bool): This is the departure `price` refers to
+
+### FlightDate
+
+One operating day from `get_connecting_flight_dates()`.
+
+**Attributes:**
+
+- `date` (datetime): The operating day
+- `stops` (int): 0 for a direct flight, 1 or more for a connection
+- `is_direct` (bool): Property, true when `stops` is 0
 
 ### FareChartEntry
 
@@ -501,6 +513,30 @@ for you, so the list you pass has no practical ceiling.
 
 Fares are a different matter: there is no batched priced surface, so
 `explore_with_fares()` still costs one call per destination.
+
+## Flights that need a connection
+
+`validate_route()` and `get_flight_dates()` cover direct service only, so a
+`False` from either does not mean you cannot fly the route.
+`get_connecting_flight_dates()` also answers for pairs that need a change of
+plane:
+
+```python
+from datetime import datetime, timedelta
+from flywizz import WizzAir
+
+client = WizzAir()
+start = datetime.now() + timedelta(days=30)
+
+client.validate_route("KTW", "LIS")   # False - no direct flight
+
+for day in client.get_connecting_flight_dates("KTW", "LIS", start, start + timedelta(days=30)):
+    print(day.date.date(), "direct" if day.is_direct else f"{day.stops} stop(s)")
+```
+
+On a route that flies direct only some days, both kinds come back interleaved,
+so you can see which days need a connection. Filter on `is_direct` when one
+will not do.
 
 ## Explore Mode
 

@@ -21,6 +21,7 @@ __all__ = [
     "Network",
     "TimetableEntry",
     "Departure",
+    "FlightDate",
     "FareChartEntry",
     "FlightStatus",
     "Country",
@@ -107,6 +108,22 @@ class Departure(BaseModel):
 
     departure: datetime
     is_cheapest_of_the_day: bool
+
+
+class FlightDate(BaseModel):
+    """One operating day, and how many stops it takes to fly it.
+
+    Returned by the connecting-flight schedule, where a day may be reachable
+    direct, or only by changing planes. Days with no service at all are simply
+    absent.
+    """
+
+    date: datetime
+    stops: int
+
+    @property
+    def is_direct(self) -> bool:
+        return self.stops == 0
 
 
 class TimetableEntry(BaseModel):

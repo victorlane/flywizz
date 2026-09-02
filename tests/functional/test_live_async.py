@@ -14,7 +14,13 @@ from flywizz import AsyncCachingTransport, CachingTransport
 from flywizz.misc import FareChartSearch, TimetableSearch
 from flywizz.transport import AsyncWizzairTransport, WizzairTransport
 
-from .conftest import BUSY_ROUTE, THIN_ROUTE, priced_window, require
+from .conftest import (
+    BUSY_ROUTE,
+    INDIRECT_ROUTE,
+    THIN_ROUTE,
+    priced_window,
+    require,
+)
 
 
 async def test_async_network_matches_sync(client, async_client):
@@ -128,5 +134,18 @@ async def test_async_multi_arrival_matches_sync(client, async_client):
     sync_dates = client.get_flight_dates_multi(origin, destinations, start, end)
     async_dates = await async_client.get_flight_dates_multi(
         origin, destinations, start, end
+    )
+    assert sync_dates == async_dates
+
+
+async def test_async_connecting_dates_match_sync(client, async_client):
+    origin, destination = INDIRECT_ROUTE
+    start, end = priced_window()
+    sync_dates = require(
+        client.get_connecting_flight_dates(origin, destination, start, end),
+        "connecting dates",
+    )
+    async_dates = await async_client.get_connecting_flight_dates(
+        origin, destination, start, end
     )
     assert sync_dates == async_dates

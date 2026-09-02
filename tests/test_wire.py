@@ -7,9 +7,11 @@ from flywizz.misc import (
     MAX_TIMETABLE_WINDOW_DAYS,
     AvailabilitySearch,
     FareChartSearch,
+    FlightDate,
     TimetableSearch,
 )
 from flywizz.wire import (
+    parse_connecting_flight_dates,
     parse_fare_chart_entry,
     parse_flight_dates,
     parse_flight_status,
@@ -354,3 +356,58 @@ def test_parse_multi_arrival_raises_when_the_arrival_limit_was_exceeded():
             {"arrivalStationResults": {}, "isArrivalLimitExceeded": True},
             ["A", "B", "C", "D", "E", "F"],
         )
+
+
+DOHOP = {
+    "arrivalStationResults": {
+        # Keys arrive camel-cased, and the dates carry no time part.
+        "ktW-LIS": [
+            {"departureDate": "2026-11-05", "numberOfStops": 1},
+            {"departureDate": "2026-11-02", "numberOfStops": 0},
+        ],
+        "ktW-EIN": [{"departureDate": "2026-11-09", "numberOfStops": 0}],
+    }
+}
+
+
+def test_parse_connecting_flight_dates_orders_by_day():
+    dates = parse_connecting_flight_dates(DOHOP, "lis")
+    assert [d.date for d in dates] == [datetime(2026, 11, 2), datetime(2026, 11, 5)]
+    assert [d.stops for d in dates] == [0, 1]
+    assert dates[0].is_direct is True
+    assert dates[1].is_direct is False
+
+
+def test_parse_connecting_flight_dates_ignores_other_routes():
+    """The response is keyed by route, so only the asked-for one counts."""
+    assert parse_connecting_flight_dates(DOHOP, "EIN") == [
+        FlightDate(date=datetime(2026, 11, 9), stops=0)
+    ]
+    assert parse_connecting_flight_dates(DOHOP, "CDG") == []
+
+
+def test_parse_connecting_flight_dates_collapses_identical_rows():
+    """Upstream sends one row per departure, not per day.
+
+    A twice-daily route repeats the same `(date, stops)` pair byte for byte,
+    with nothing to tell the rows apart -- no flight number, no time. A day
+    reachable both direct and via a connection still yields two entries.
+    """
+    parsed = parse_connecting_flight_dates(
+        {
+            "arrivalStationResults": {
+                "buD-LTN": [
+                    {"departureDate": "2026-11-02", "numberOfStops": 0},
+                    {"departureDate": "2026-11-02", "numberOfStops": 0},
+                    {"departureDate": "2026-11-03", "numberOfStops": 0},
+                    {"departureDate": "2026-11-03", "numberOfStops": 1},
+                ]
+            }
+        },
+        "LTN",
+    )
+    assert [(d.date, d.stops) for d in parsed] == [
+        (datetime(2026, 11, 2), 0),
+        (datetime(2026, 11, 3), 0),
+        (datetime(2026, 11, 3), 1),
+    ]

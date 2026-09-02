@@ -22,6 +22,7 @@ from .misc import (
     Departure,
     FareChartEntry,
     FareChartSearch,
+    FlightDate,
     FlightStatus,
     Network,
     Price,
@@ -177,6 +178,35 @@ def parse_live_price(
     if price is not None and price_type in NO_FARE_PRICE_TYPES and price.amount == 0:
         return None
     return price
+
+
+def parse_connecting_flight_dates(
+    raw: Dict[str, Any], destination: str
+) -> list[FlightDate]:
+    """Parse the connecting-flight schedule into ordered :class:`FlightDate`s.
+
+    The response is keyed by route pair like the multi-arrival endpoint, with
+    the same camel-casing mangle (``BUD-LIS`` arrives as ``buD-LIS``), so the
+    key is matched back to the destination that was asked for. Unlike the other
+    schedule surfaces the dates are plain ``YYYY-MM-DD``, without a time part.
+
+    Upstream emits one row per departure rather than per day, so a route with
+    two daily rotations sends the same ``(date, stops)`` pair twice, byte for
+    byte. Those collapse here: the duplicate carries nothing that distinguishes
+    it, not even a flight number. A day genuinely reachable both direct and via
+    a connection still yields two entries, because their ``stops`` differ.
+    """
+    wanted = destination.upper()
+    seen: set[tuple[datetime, int]] = set()
+    for key, values in (raw.get("arrivalStationResults") or {}).items():
+        _, _, arrival = key.upper().partition("-")
+        if arrival != wanted:
+            continue
+        for entry in values or []:
+            parsed = _parse_dt(entry.get("departureDate"))
+            if parsed is not None:
+                seen.add((parsed, entry.get("numberOfStops", 0)))
+    return [FlightDate(date=d, stops=n) for d, n in sorted(seen)]
 
 
 def parse_multi_arrival(

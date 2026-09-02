@@ -237,3 +237,39 @@ def test_flight_dates_multi_rejects_a_window_the_endpoint_will_not_take():
             start,
             start + timedelta(days=MAX_FLIGHT_DATES_WINDOW_DAYS + 1),
         )
+
+
+DOHOP_RESPONSE = {
+    "arrivalStationResults": {
+        "ktW-LIS": [
+            {"departureDate": "2026-11-02", "numberOfStops": 1},
+            {"departureDate": "2026-11-03", "numberOfStops": 1},
+        ]
+    }
+}
+
+
+def test_get_connecting_flight_dates_posts_the_flight_dates_body():
+    transport = FakeTransport({"search/dohopFlightDates": DOHOP_RESPONSE})
+    dates = WizzAir(transport).get_connecting_flight_dates(
+        "ktw", "lis", datetime(2026, 11, 1), datetime(2026, 11, 30)
+    )
+    method, path, body = transport.calls[0]
+    assert (method, path) == ("POST", "search/dohopFlightDates")
+    assert body == {
+        "departureStation": "KTW",
+        "arrivalStation": "LIS",
+        "from": "2026-11-01",
+        "to": "2026-11-30",
+    }
+    assert [d.stops for d in dates] == [1, 1]
+    assert not any(d.is_direct for d in dates)
+
+
+def test_get_connecting_flight_dates_rejects_an_over_long_window():
+    client = WizzAir(FakeTransport({"search/dohopFlightDates": DOHOP_RESPONSE}))
+    start = datetime(2026, 11, 1)
+    with pytest.raises(ValueError, match="at most 62"):
+        client.get_connecting_flight_dates(
+            "KTW", "LIS", start, start + timedelta(days=MAX_FLIGHT_DATES_WINDOW_DAYS + 1)
+        )

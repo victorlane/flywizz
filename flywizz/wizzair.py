@@ -28,6 +28,7 @@ from .misc import (
     DestinationFare,
     FareChartEntry,
     FareChartSearch,
+    FlightDate,
     FlightStatus,
     Network,
     Station,
@@ -36,6 +37,7 @@ from .misc import (
 )
 from .transport import Transport, WizzairException, WizzairTransport
 from .wire import (
+    parse_connecting_flight_dates,
     parse_country,
     parse_culture,
     parse_fare_chart_entry,
@@ -170,6 +172,34 @@ class WizzAir:
         """Dates the route operates in a window. No prices, very cheap."""
         params = serialize_flight_dates(origin, destination, date_from, date_to)
         return parse_flight_dates(self.transport.get_json("search/flightDates", params))
+
+    def get_connecting_flight_dates(
+        self, origin: str, destination: str, date_from: datetime, date_to: datetime
+    ) -> list[FlightDate]:
+        """Operating dates including connecting itineraries. No prices.
+
+        Where :meth:`get_flight_dates` covers direct service only, this also
+        answers for pairs the route map calls unreachable: ``KTW-LIS`` has no
+        direct flight and :meth:`validate_route` returns ``False``, yet this
+        finds operating days at one stop. On a route that is direct only some
+        of the week, the two kinds of day come back interleaved.
+
+        Each :class:`~flywizz.misc.FlightDate` carries ``stops``, so filter on
+        ``is_direct`` if a connection will not do.
+
+        :raises ValueError: if the window exceeds
+            :data:`~flywizz.misc.MAX_FLIGHT_DATES_WINDOW_DAYS` days.
+        """
+        _check_flight_dates_window(date_from, date_to)
+        # Same body shape as search/flightDates, but POSTed.
+        body = serialize_flight_dates(origin, destination, date_from, date_to)
+        data = self.transport.post_json("search/dohopFlightDates", body)
+        try:
+            return parse_connecting_flight_dates(data, destination)
+        except (KeyError, ValueError) as exc:
+            raise WizzairException(
+                f"unexpected connecting-flight-dates shape: {exc}"
+            ) from exc
 
     def get_flight_dates_multi(
         self,

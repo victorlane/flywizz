@@ -228,6 +228,70 @@ Three traps, all of them silent:
 
 ---
 
+## `POST /Api/search/dohopFlightDates`
+
+Operating dates including connecting itineraries, via Wizz Air's interlining
+partner. Still no prices.
+
+**Body** — identical to `search/flightDates`, but POSTed. One arrival station
+only: `arrivalStations` (plural) is rejected with `InvalidArrivalStationCode`.
+Window may span at most 62 days.
+
+**Response**
+
+```json
+{
+  "arrivalStationResults": {
+    "ktW-LIS": [
+      {"departureDate": "2026-10-02", "numberOfStops": 1},
+      {"departureDate": "2026-10-03", "numberOfStops": 1}
+    ]
+  }
+}
+```
+
+Same camel-cased key mangle as `FlightDatesMultiArrival`.
+
+Two things make this worth having:
+
+1. **It reaches pairs the route map calls unreachable.** `asset/map` lists
+   direct connections only, so `KTW-LIS` fails `validate_route`. This endpoint
+   returns operating days for it at `numberOfStops: 1`.
+2. **A partly-direct route interleaves both kinds of day.** `BUD-TFS` comes
+   back with 0-stop and 1-stop days mixed, so you can see which days need a
+   change of plane.
+
+One trap: **rows are per departure, not per day.** A route with two daily
+rotations sends the same `{departureDate, numberOfStops}` object twice, byte
+for byte — no flight number, no time, nothing to tell them apart. `BUD-LTN`
+over 31 days returns 62 rows. Flywizz collapses identical pairs, so a day
+reachable both direct and connecting still yields two entries while a
+twice-daily direct route yields one.
+
+The dates here are plain `YYYY-MM-DD`; the other schedule endpoints send
+`YYYY-MM-DDT00:00:00`.
+
+---
+
+## `POST /Api/search/ConnectedFlights` — **not usable**
+
+Left undocumented as a route, but reachable. The body shape is solved:
+
+```json
+{"flightList": [{"departureStation": "KTW", "arrivalStation": "LIS", "departureDate": "2026-10-02"}]}
+```
+
+That clears every validation gate — an empty body gives `InvalidFlightCount`,
+and any other date field name gives `InvalidDepartureDate`. Once validation
+passes, the handler answers **500 Unknown error**, on direct and indirect
+routes alike, with one leg or two, with and without passenger counts.
+
+So the shape is not the obstacle. The endpoint either needs a booking session
+the anonymous handshake cannot mint, or it is simply broken. Do not spend more
+time on it without new evidence; use `dohopFlightDates` for connections.
+
+---
+
 ## `POST /Api/search/timetableV2`
 
 The workhorse. Cheapest fare per day for one or two legs across a date window.

@@ -22,6 +22,7 @@ from flywizz.transport import BotGateError, WizzairException
 
 from .conftest import (
     BUSY_ROUTE,
+    INDIRECT_ROUTE,
     THIN_ROUTE,
     near_window,
     priced_window,
@@ -382,4 +383,78 @@ def test_multi_arrival_rejects_an_over_long_window(client):
             [BUSY_ROUTE[1]],
             start,
             start + timedelta(days=MAX_FLIGHT_DATES_WINDOW_DAYS + 1),
+        )
+
+
+# --- search/dohopFlightDates ----------------------------------------------
+
+
+def test_connecting_dates_reach_a_route_with_no_direct_service(client):
+    """The point of this endpoint: pairs the route map calls unreachable.
+
+    `validate_route` covers direct service only, so a `False` there does not
+    mean you cannot fly it.
+    """
+    origin, destination = INDIRECT_ROUTE
+    start, end = priced_window()
+    if client.validate_route(origin, destination):
+        pytest.skip(f"{origin}-{destination} now flies direct; pick another pair")
+
+    dates = require(
+        client.get_connecting_flight_dates(origin, destination, start, end),
+        "connecting dates",
+    )
+    assert all(not d.is_direct for d in dates), (
+        "a route with no direct service returned direct days"
+    )
+    assert all(d.stops >= 1 for d in dates)
+
+
+def test_connecting_dates_are_ordered_and_in_window(client):
+    origin, destination = BUSY_ROUTE
+    start, end = priced_window()
+    dates = require(
+        client.get_connecting_flight_dates(origin, destination, start, end),
+        "connecting dates",
+    )
+    days = [d.date for d in dates]
+    assert days == sorted(days)
+    assert start.date() <= days[0].date() and days[-1].date() <= end.date()
+    assert all(d.stops >= 0 for d in dates)
+    assert all(d.is_direct == (d.stops == 0) for d in dates)
+    # A day may appear twice -- direct and connecting -- but never as two
+    # identical rows, which is what upstream sends for a twice-daily route.
+    pairs = [(d.date, d.stops) for d in dates]
+    assert len(set(pairs)) == len(pairs), "an identical row survived deduplication"
+
+
+def test_connecting_dates_agree_with_flight_dates_on_direct_days(client):
+    """Both surfaces describe the same direct schedule, give or take a day.
+
+    They are computed from different snapshots, so a day or two of drift is
+    normal; a large divergence means one of them changed meaning.
+    """
+    origin, destination = THIN_ROUTE
+    start, end = priced_window()
+    direct = {
+        d.date.date()
+        for d in client.get_connecting_flight_dates(origin, destination, start, end)
+        if d.is_direct
+    }
+    plain = {d.date() for d in client.get_flight_dates(origin, destination, start, end)}
+    require(direct, "direct connecting dates")
+    require(plain, "flight dates")
+
+    overlap = len(direct & plain) / len(direct | plain)
+    assert overlap >= 0.8, (
+        f"dohopFlightDates and flightDates agree on only {overlap:.0%} of direct "
+        f"days (dohop-only={sorted(direct - plain)}, plain-only={sorted(plain - direct)})"
+    )
+
+
+def test_connecting_dates_reject_an_over_long_window(client):
+    start, _ = priced_window()
+    with pytest.raises(ValueError, match="at most"):
+        client.get_connecting_flight_dates(
+            *BUSY_ROUTE, start, start + timedelta(days=MAX_FLIGHT_DATES_WINDOW_DAYS + 1)
         )

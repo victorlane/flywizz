@@ -52,6 +52,9 @@ BUSY_ROUTE = ("BUD", "LTN")
 #: A thin route with one daily rotation. Near-term days here come back as
 #: ``checkPrice`` placeholders, which is the shape that regressed once already.
 THIN_ROUTE = ("KTW", "EIN")
+#: A pair with no direct service. ``validate_route`` says no; the connecting
+#: schedule finds operating days at one stop.
+INDIRECT_ROUTE = ("KTW", "LIS")
 
 #: Far enough out that inventory is published and priced inline.
 PRICED_WINDOW_START_DAYS = 30

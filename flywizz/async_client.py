@@ -20,6 +20,7 @@ from .misc import (
     DestinationFare,
     FareChartEntry,
     FareChartSearch,
+    FlightDate,
     FlightStatus,
     Network,
     Station,
@@ -28,6 +29,7 @@ from .misc import (
 )
 from .transport import AsyncTransport, AsyncWizzairTransport, WizzairException
 from .wire import (
+    parse_connecting_flight_dates,
     parse_country,
     parse_culture,
     parse_fare_chart_entry,
@@ -116,6 +118,23 @@ class AsyncWizzAir:
         params = serialize_flight_dates(origin, destination, date_from, date_to)
         data = await self.transport.get_json("search/flightDates", params)
         return parse_flight_dates(data)
+
+    async def get_connecting_flight_dates(
+        self, origin: str, destination: str, date_from: datetime, date_to: datetime
+    ) -> list[FlightDate]:
+        """Operating dates including connecting itineraries. No prices.
+
+        See :meth:`flywizz.WizzAir.get_connecting_flight_dates`.
+        """
+        _check_flight_dates_window(date_from, date_to)
+        body = serialize_flight_dates(origin, destination, date_from, date_to)
+        data = await self.transport.post_json("search/dohopFlightDates", body)
+        try:
+            return parse_connecting_flight_dates(data, destination)
+        except (KeyError, ValueError) as exc:
+            raise WizzairException(
+                f"unexpected connecting-flight-dates shape: {exc}"
+            ) from exc
 
     async def get_flight_dates_multi(
         self,
